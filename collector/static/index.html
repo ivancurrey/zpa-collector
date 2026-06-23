@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ZPA Hygiene Collector</title>
+<style>
+  :root {
+    --zs-blue: #1f5fd6; --zs-ink: #1c2333; --zs-muted: #5b6577;
+    --zs-line: #e3e7ee; --zs-bg: #f6f8fb; --zs-card: #ffffff;
+    --green: #1a9e57; --yellow: #c9a200; --orange: #d77a1d; --red: #d23b3b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--zs-ink); background: var(--zs-bg);
+  }
+  header {
+    background: var(--zs-card); border-bottom: 1px solid var(--zs-line);
+    padding: 14px 22px; display: flex; align-items: center; gap: 14px;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .badge {
+    margin-left: auto; font-size: 12px; color: var(--zs-muted);
+  }
+  main { padding: 22px; max-width: 1180px; margin: 0 auto; }
+  .controls {
+    background: var(--zs-card); border: 1px solid var(--zs-line); border-radius: 8px;
+    padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+    margin-bottom: 18px;
+  }
+  .controls label { display: flex; flex-direction: column; font-size: 12px; color: var(--zs-muted); gap: 4px; }
+  .controls input[type=number] { width: 90px; }
+  .controls input, .controls select {
+    padding: 6px 8px; border: 1px solid var(--zs-line); border-radius: 6px; font-size: 13px;
+  }
+  .controls button {
+    background: var(--zs-blue); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  .controls .token { width: 220px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .card {
+    background: var(--zs-card); border: 1px solid var(--zs-line); border-radius: 8px;
+    padding: 12px 16px; min-width: 130px;
+  }
+  .card .n { font-size: 22px; font-weight: 700; }
+  .card .l { font-size: 12px; color: var(--zs-muted); }
+  table { width: 100%; border-collapse: collapse; background: var(--zs-card);
+    border: 1px solid var(--zs-line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--zs-line); font-size: 13px; }
+  th { background: #fbfcfe; color: var(--zs-muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .green { background: var(--green); } .yellow { background: var(--yellow); }
+  .orange { background: var(--orange); } .red { background: var(--red); }
+  .err { color: var(--red); font-size: 13px; margin: 10px 0; }
+  .muted { color: var(--zs-muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZPA Hygiene Collector</h1>
+  <span class="badge" id="coverage">coverage —</span>
+</header>
+<main>
+  <div class="controls">
+    <label>Dashboard token
+      <input class="token" id="token" type="password" placeholder="DASH_TOKEN" />
+    </label>
+    <label>Object type
+      <select id="type">
+        <option value="segment">Segment</option>
+        <option value="segment_group">Segment Group</option>
+        <option value="rule">Rule</option>
+        <option value="server">Server</option>
+        <option value="connector">Connector</option>
+      </select>
+    </label>
+    <label>WARM days <input id="warm" type="number" min="1" value="7" /></label>
+    <label>STALE days <input id="stale" type="number" min="1" value="30" /></label>
+    <label>WINDOW days <input id="window" type="number" min="1" value="30" /></label>
+    <button id="refresh">Refresh</button>
+    <a id="csv" href="#">Export CSV</a>
+  </div>
+
+  <div class="err" id="err" hidden></div>
+
+  <div class="cards" id="cards"></div>
+
+  <table>
+    <thead>
+      <tr><th>Name</th><th>State</th><th>Band</th><th>Last seen</th>
+          <th>Days idle</th><th title="deduped brokered connections (advisory)">Hits</th><th>Users</th><th>Drift</th></tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="8" class="muted">Enter token and Refresh.</td></tr></tbody>
+  </table>
+  <p class="muted" style="font-size:12px;margin-top:14px;">
+    Heat bands are computed live from the thresholds above. "Red / Silent" objects are
+    <strong>candidates for review</strong>, not delete orders — read the methodology caveat in the CSV header.
+  </p>
+</main>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  function params() {
+    return new URLSearchParams({
+      warm: $("warm").value, stale: $("stale").value, window: $("window").value
+    });
+  }
+  function headers() { return { "X-Dash-Token": $("token").value }; }
+  function showErr(msg) { const e = $("err"); e.hidden = !msg; e.textContent = msg || ""; }
+
+  async function getJSON(path) {
+    const r = await fetch(path, { headers: headers() });
+    if (!r.ok) throw new Error(path + " -> HTTP " + r.status);
+    return r.json();
+  }
+
+  function bandDot(band) {
+    const cls = ({ green: "green", yellow: "yellow", orange: "orange", red: "red" })[band] || "red";
+    return '<span class="dot ' + cls + '"></span>' + band;
+  }
+
+  async function refresh() {
+    showErr("");
+    const p = params().toString();
+    const type = $("type").value;
+    $("csv").href = "/export.csv?" + p;
+    try {
+      // Health badge (unauthenticated endpoint).
+      try {
+        const h = await (await fetch("/health")).json();
+        $("coverage").textContent = h.state + " · " + (h.records_total ?? 0) + " records";
+      } catch (e) { /* leave badge as-is if /health is unreachable */ }
+
+      const summary = await getJSON("/api/summary?" + p);
+      const bucket = summary[type] || { counts: {}, bands: {} };
+      const counts = bucket.counts || {};
+      const cards = $("cards"); cards.innerHTML = "";
+      ["active", "attempted", "silent"].forEach((k) => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = '<div class="n">' + (counts[k] ?? 0) +
+          '</div><div class="l">' + k + "</div>";
+        cards.appendChild(div);
+      });
+
+      const data = await getJSON("/api/objects/" + encodeURIComponent(type) + "?" + p);
+      const rows = (data.rows || data || []);
+      const tbody = $("rows"); tbody.innerHTML = "";
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="muted">No objects.</td></tr>';
+        return;
+      }
+      rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + (row.name ?? "") + "</td>" +
+          "<td>" + (row.state ?? "") + "</td>" +
+          "<td>" + bandDot(row.band) + "</td>" +
+          "<td>" + (row.last_seen ?? "") + "</td>" +
+          "<td>" + (row.days_idle ?? "") + "</td>" +
+          "<td>" + (row.access_count ?? 0) + "</td>" +
+          "<td>" + (row.user_sample_size ?? 0) + (row.user_sample_capped ? "+" : "") + "</td>" +
+          "<td>" + (row.drift ?? "") + "</td>";
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      showErr(e.message + " (check token / that the collector is up)");
+    }
+  }
+
+  $("refresh").addEventListener("click", refresh);
+  ["type", "warm", "stale", "window"].forEach((id) =>
+    $(id).addEventListener("change", refresh));
+})();
+</script>
+</body>
+</html>

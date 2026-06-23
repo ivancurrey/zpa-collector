@@ -1,0 +1,21 @@
+services:
+  zpa-collector:
+    build: .
+    image: zpa-collector:latest
+    container_name: zpa-collector
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "4639:4639"   # LSS TLS receiver (point the LSS config here)
+      - "8866:8866"   # dashboard / API / CSV export (token-gated)
+    volumes:
+      - zpa_collector_data:/data   # state.db + receiver cert/key
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('HTTP_PORT','8866'), timeout=4).getcode()==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  zpa_collector_data:

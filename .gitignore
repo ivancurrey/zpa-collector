@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Secrets & runtime state — never commit
+.env
+state.db
+state.db-wal
+state.db-shm
+receiver.crt
+receiver.key
