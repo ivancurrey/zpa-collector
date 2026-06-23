@@ -1,6 +1,6 @@
 # zpa-collector — Deployment Guide
 
-> For Zscaler SEs **and** customer admins. Stand up the container, point ZPA LSS
+> For Zscaler admins. Stand up the container, point ZPA LSS
 > at it, and pull an advisory "review these segments / rules / servers" report.
 
 A single, stdlib-only, zero-pip container that receives the ZPA LSS
